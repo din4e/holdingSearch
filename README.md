@@ -1,5 +1,6 @@
 <h1 align="center">holdingSearch</h1>
 <h3 align="center">子公司控股企业查询</h3>
+
 # 说明
 **功能**：获取对应公司在爱企查平台上的50%及以上控股企业名称数据。
 
