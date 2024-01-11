@@ -181,8 +181,9 @@ class EnterInfoSearch(object):
             for name in data:
                 entName = name['entName']
                 proportion = name['proportion']
-                print("企业名称: {:<50}{:<20}".format(entName, "股权占比: " + str(proportion)))
-                self.data_list.append((entName, proportion, self.company))
+                if entName and proportion:
+                    print("企业名称: {:<50}{:<20}".format(entName, "股权占比: " + str(proportion)))
+                    self.data_list.append((entName, proportion, self.company))
             p += 1
         # print(res)
 
