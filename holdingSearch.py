@@ -18,6 +18,9 @@ from openpyxl.styles import NamedStyle, Font, Alignment
 
 warnings.filterwarnings("ignore")
 
+from pprint import pprint
+import re
+prog_openstatus = re.compile(r'"openStatus":"(.*?)"')
 
 class EnterInfoSearch(object):
     def __init__(self):
@@ -164,7 +167,7 @@ class EnterInfoSearch(object):
             print("未查询到企业: {}".format(self.company))
             return None
 
-    def getHoldingData(self):
+    def getHoldingData(self, percent, depth):
         """获取控股企业数据"""
         print("获取控股企业数据: ")
         res = []
@@ -172,8 +175,11 @@ class EnterInfoSearch(object):
         while True:
             url = f"https://aiqicha.baidu.com:443/detail/holdsAjax?pid={self.pid}&p={p}&size=30&confirm="
             req = self.get_req(url, False)
-            # print(req)
+            # print(f"url----------: {url}")
+            # print(f"req----------: {req.encode().decode('unicode_escape')}")
             data = json.loads(req)['data']['list']
+            # print(f"data---------: {data}")
+
             if not data:
                 print(f"共获取控股企业数据 ({len(res)}个): ")
                 break
@@ -181,16 +187,35 @@ class EnterInfoSearch(object):
             for name in data:
                 entName = name['entName']
                 proportion = name['proportion']
+                
+                if float(proportion)< percent:
+                    break
+
+                # 查看层级
+                pathList = name['pathData'][0].get('pathList')
+                level = len(pathList)
+                if level > depth:
+                    continue
+
+                # 查询子公司注销/吊销情况
+                sub_company_url = "https://aiqicha.baidu.com/company_detail_" + name["pid"]
+                try:
+                    open_status = prog_openstatus.search(
+                        self.get_req(sub_company_url, False)
+                    ).group(1).encode().decode("unicode_escape")
+                except Exception as e:
+                    print(f"{e}")
+                    open_status = ""
                 if entName and proportion:
-                    print("企业名称: {:<50}{:<20}".format(entName, "股权占比: " + str(proportion)))
-                    self.data_list.append((entName, proportion, self.company))
+                    print(f"企业名称: {entName:<50} 开业情况:{open_status:<10} 股权占比:{str(proportion):<20} 公司层数:{level}")
+                    self.data_list.append((entName, open_status, proportion, level, self.company))
             p += 1
         # print(res)
 
     def save_excel(self, now_time):
         if not os.path.exists("res"):
             os.mkdir("res")
-        file_path = f"res/{now_time}.xlsx"
+        file_path = f"res/{self.company}_{now_time}.xlsx"
         TitleStyle = NamedStyle(name='TitleStyle',
                                 font=Font(name='宋体', size=11, bold=True),
                                 alignment=Alignment(horizontal='left', vertical='center'))
@@ -204,8 +229,10 @@ class EnterInfoSearch(object):
 
             worksheet.column_dimensions['A'].width = 50
             worksheet.column_dimensions['B'].width = 10
-            worksheet.column_dimensions['C'].width = 50
-            col = ['公司名', '股权占比', '查询企业名称']
+            worksheet.column_dimensions['C'].width = 10
+            worksheet.column_dimensions['D'].width = 10
+            worksheet.column_dimensions['E'].width = 50
+            col = ['公司名', '开业情况', '股权占比', '公司层数','查询企业名称']
             worksheet.append(col)
             for res in self.data_list:
                 worksheet.append(res)
@@ -231,7 +258,7 @@ class EnterInfoSearch(object):
 
             workbook.save(file_path)
 
-    def run(self, now_time, company):
+    def run(self, now_time, company, percent, depth):
         self.company = company
         print("\n查询企业名称: {}".format(self.company))
         res = self.check_name()
@@ -239,9 +266,14 @@ class EnterInfoSearch(object):
             self.pid = res[0]
         if self.pid is not None:
             print("企业PID:      {}".format(self.pid))
-            self.getHoldingData()  # 查询控股企业
-            self.save_excel(now_time)
-            self.data_list = []
+            try:
+                self.getHoldingData(percent, depth)  # 查询控股企业
+            except Exception as e:
+                print(f"{e}")
+                pass
+            finally:    
+                self.save_excel(now_time)
+                self.data_list = []
 
     def banner(self):
         print("""
@@ -255,8 +287,10 @@ class EnterInfoSearch(object):
                                                             by:foyaga
         """)
         parser = argparse.ArgumentParser()
-        parser.add_argument('-f', dest='file', help='导入文件批量查询')
-        parser.add_argument('-t', dest='target', help='指定公司名称查询')
+        parser.add_argument('-f', dest='file',    help='导入文件批量查询')
+        parser.add_argument('-t', dest='target',  help='指定公司名称查询')
+        parser.add_argument('-p', dest='percent', help='指定公司投资最大百分比')
+        parser.add_argument('-d', dest='depth',   help='指定公司最小控股层数')
         args = parser.parse_args()
         return args, parser
 
@@ -264,7 +298,7 @@ class EnterInfoSearch(object):
 if __name__ == '__main__':
     Scan = EnterInfoSearch()
     args, parser = Scan.banner()
-    nowTime = datetime.now().strftime("%Y%m%d%H%M%S")
+    nowTime = datetime.now().strftime("%Y%m%d_%H%M%S")
     if args.file:
         Scan.is_rp = False
         file = args.file
@@ -276,6 +310,8 @@ if __name__ == '__main__':
                 sleep(5)
 
     elif args.target:
-        Scan.run(nowTime, args.target)
+        percent = float(args.percent) if args.percent else 0
+        depth = int(args.depth) if args.depth else 99
+        Scan.run(nowTime, args.target, percent, depth)
     else:
         parser.parse_args(["-h"])
